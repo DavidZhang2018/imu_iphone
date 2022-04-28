@@ -8,7 +8,7 @@
 import Charts
 import UIKit
 import CoreMotion
-
+import simd
 class ViewController: UIViewController, ChartViewDelegate {
     
     @IBOutlet weak var lineChartView: LineChartView!
@@ -17,9 +17,13 @@ class ViewController: UIViewController, ChartViewDelegate {
     @IBOutlet weak var label: UILabel!
     
     var ts: Double = 0
-    var gyro_x: Double = 0
+    var gyrox: Double = 0
+    var gyroy: Double = 0
+    var gyro_tilt: Double = 0
+    var old_gyro: Double = 0
+    var gyro: Double = 0
+    var tilt_change: Double = 0
     var angle: Double = 0
-
     override func viewDidLoad() {
         super.viewDidLoad()
         // Do any additional setup after loading the view.
@@ -96,10 +100,19 @@ class ViewController: UIViewController, ChartViewDelegate {
         
             // get the gyro data
             if let data = self.motion.gyroData {
-                let x = data.rotationRate.x-0.004
-                let y = data.rotationRate.y+0.0027
-                let z = data.rotationRate.z+0.0036
-               self.gyro_x = x
+                let x = data.rotationRate.x
+                let y = data.rotationRate.y
+                let z = data.rotationRate.z
+
+                self.gyrox = self.gyrox + x*1.0/60
+                self.gyroy = self.gyroy + y*1.0/60
+                
+                let qx = simd_quatd(ix:sin(self.gyrox/2.0), iy:0 ,iz:0,r:cos(self.gyrox/2.0))
+                let qy = simd_quatd(ix:0, iy: sin(self.gyroy/2.0),iz:0,r:cos(self.gyroy/2.0))
+                let gyro = acos(simd_mul(qx,qy).real)*180.0/Double.pi
+                let tilt_change = gyro - self.old_gyro
+                self.old_gyro = gyro
+                self.gyro_tilt = self.gyro_tilt + tilt_change
                let timestamp = NSDate().timeIntervalSince1970
                let text = "\(timestamp), \(x), \(y), \(z)\n"
                print ("G: \(text)")
@@ -139,7 +152,10 @@ class ViewController: UIViewController, ChartViewDelegate {
                 let x = data.acceleration.x-0.0013
                 let y = data.acceleration.y+0.0038
                 let z = data.acceleration.z+0.0068
-                self.angle = abs(0.98*(self.angle+(1.0/60)*self.gyro_x*180/Double.pi))+abs(0.02*(180-acos(z/sqrt(x*x+y*y+z*z))*180/Double.pi))
+                
+                let acc = 180-acos(z/sqrt(x*x+y*y+z*z))*180/Double.pi
+                
+                self.angle = 0.98*(self.angle+self.tilt_change)+0.02*acc
 
               let timestamp = NSDate().timeIntervalSince1970
               let text = "\(timestamp), \(x), \(y), \(z)\n"
@@ -147,7 +163,9 @@ class ViewController: UIViewController, ChartViewDelegate {
 
               self.accel_fileHandle!.write(text.data(using: .utf8)!)
                 
-              self.lineChartView.data?.addEntry(ChartDataEntry(x: Double(counter), y: self.angle), dataSetIndex: 0)
+                self.lineChartView.data?.addEntry(ChartDataEntry(x: Double(counter), y: self.angle), dataSetIndex: 0)
+                self.lineChartView.data?.addEntry(ChartDataEntry(x: Double(counter), y: acc), dataSetIndex: 1)
+                self.lineChartView.data?.addEntry(ChartDataEntry(x: Double(counter), y: self.gyro_tilt), dataSetIndex: 2)
               // refreshes the data in the graph
               self.lineChartView.notifyDataSetChanged()
                 
